@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -90,11 +91,14 @@ public class Scheduling {
             }
         }
         
-        String classHeader = IntStream.range(1, numPeriods+1).mapToObj(i->"Session "+i).collect(joining(","));
+        String classHeader = IntStream.range(1, numPeriods+1)
+                .mapToObj(i->"Session "+i)
+                .flatMap(h->Stream.of(h, h+" Location"))
+                .collect(joining(","));
         try (PrintWriter assignments = new PrintWriter(new FileWriter("/Users/blamoni/Desktop/"+prefix+"assignments.csv"))) {
-            assignments.println("Name,Grade,Happiness,NumClasses,"+classHeader);
+            assignments.println("Last Name,First Name,Grade,Teacher,Happiness,NumClasses,"+classHeader);
             for(Student s: students) {
-                assignments.println(s.toCsv(numPeriods, maxScore, firstGradeMaxScore));
+                assignments.println(s.toCsv(numPeriods, maxScore, firstGradeMaxScore, classes));
             }
         }
         
@@ -188,9 +192,9 @@ public class Scheduling {
     public static void main(String[] args) throws Exception {
         
         long start = System.currentTimeMillis();
-        Scheduling scheduling = new Scheduling("/Users/blamoni/Desktop/EMD 2018 - Class Counts & Grades.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL Entry for  Submission.csv");
+        Scheduling scheduling = new Scheduling("/Users/blamoni/Desktop/EMD 2018 - Class Counts &  Grades.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL Entry for  Submission.csv");
         scheduling.run("normal-");
-        Scheduling rainScheduling = new Scheduling("/Users/blamoni/Desktop/EMD 2018 - Class Counts & Grades - Rain Plan.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL Entry for  Submission.csv");
+        Scheduling rainScheduling = new Scheduling("/Users/blamoni/Desktop/EMD 2018 - Class Counts & Grades -  Rain Plan.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL Entry for  Submission.csv");
         rainScheduling.run("rain-");
         System.out.println("Took " + (System.currentTimeMillis() - start) + " ms.");
         

@@ -34,12 +34,14 @@ public class Class {
 
     public List<Period> periods;
     public String name;
+    public String location;
     public int minGrade;
     
     public Class(Class copy) {
         this.name = copy.name;
         this.periods = copy.periods.stream().map(Period::new).collect(toList());
         this.minGrade = copy.minGrade;
+        this.location = copy.location;
     }
     
     public String getName() {
@@ -60,6 +62,7 @@ public class Class {
         name = fields.get(1);
         periods = fields.subList(5, fields.size()).stream().map(intValidator::validate).map(Period::new).collect(toList());
         minGrade = Optional.ofNullable(fields.get(2)).map(intValidator::validate).orElse(1);
+        location = fields.get(3);
     }
 
     public int addStudent(Student s, Set<Integer> availablePeriods) {
@@ -77,5 +80,9 @@ public class Class {
     
     public String toCsv() {
         return "\""+name+"\","+periods.stream().map(p->String.valueOf(p.students.size())).collect(joining(","))+","+minGrade;
+    }
+
+    public String getLocation() {
+        return location;
     }
 }

@@ -19,6 +19,7 @@ import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.validator.routines.IntegerValidator;
@@ -84,19 +85,34 @@ public class Student implements Comparable<Student> {
     }
     
     public String getName() {
-        return fields.get("STUDENT First Name") + " " + fields.get("STUDENT Last Name");
+        return getFirstName() + " " + getLastName();
     }
     
     public int getGrade() {
         return grade;
     }
     
-    public String toCsv(int numPeriods, int maxScore, int firstGradeMaxScore) {
-        StringBuilder buf = new StringBuilder(getName()+","+getGrade()+","+getHappinessScore(grade!=1?maxScore:firstGradeMaxScore)+","+assignments.size()+",");
-        buf.append(IntStream.range(0, numPeriods).mapToObj(i->assignments.getOrDefault(i, "")).collect(joining("\",\"","\"","\"")));
+    public String toCsv(int numPeriods, int maxScore, int firstGradeMaxScore, Map<String, Class> classes) {
+        StringBuilder buf = new StringBuilder(getLastName()+","+getFirstName()+","+getGrade()+","+getTeacher()+","+getHappinessScore(grade!=1?maxScore:firstGradeMaxScore)+","+assignments.size()+",");
+        buf.append(IntStream.range(0, numPeriods)
+                .mapToObj(i->assignments.getOrDefault(i, ""))
+                .flatMap(c->Stream.of(c, Optional.ofNullable(classes.get(c)).map(Class::getLocation).orElse("")))
+                .collect(joining("\",\"","\"","\"")));
         return buf.toString();
     }
     
+    private String getTeacher() {
+        return fields.get("Teacher");
+    }
+
+    private String getFirstName() {
+        return fields.get("STUDENT First Name");
+    }
+
+    private String getLastName() {
+        return fields.get("STUDENT Last Name");
+    }
+
     public int getHappinessScore(int maxScore) {
         Set<String> classes = new HashSet<>(assignments.values());
         int score = 0;
