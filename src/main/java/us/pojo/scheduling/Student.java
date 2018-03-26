@@ -1,6 +1,8 @@
 package us.pojo.scheduling;
 
 import static java.util.stream.Collectors.joining;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 import static us.pojo.scheduling.CSVParser.parseLine;
 
 import java.time.LocalDateTime;
@@ -8,13 +10,11 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,10 +34,11 @@ public class Student implements Comparable<Student> {
         this.assignments = new TreeMap<>(copy.assignments);
         this.fields = copy.fields;
         this.time = copy.time;
+        this.originalChoices = copy.originalChoices;
     }
     
     public boolean isInFirstGrade() {
-        return grade == 1;
+        return grade == 1 || Optional.ofNullable(fields.get("Teacher")).map(t->t.startsWith("1")).orElse(false);
     }
     
     public Student(List<String> header, String line) {
@@ -60,7 +61,7 @@ public class Student implements Comparable<Student> {
             }
         }
         try {
-            this.grade = IntegerValidator.getInstance().validate(Optional.ofNullable(fields.get("Grade")).orElse("1"));
+            this.grade = IntegerValidator.getInstance().validate(Optional.ofNullable(fields.get("Grade")).orElse("2"));
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -71,16 +72,35 @@ public class Student implements Comparable<Student> {
             this.time = Long.MAX_VALUE;
         }
         this.choices.addAll(choices);
+        this.originalChoices = new ArrayList<>(this.choices);
     }
     private Map<String,String> fields = new HashMap<>();
     public List<String> choices = new ArrayList<>();
+    public List<String> originalChoices = new ArrayList<>();
     public int nextChoice = 0;
     private int grade;
     private long time;
-    public SortedMap<Integer, String> assignments = new TreeMap<>();
+    public TreeMap<Integer, Assignment> assignments = new TreeMap<>();
+
+    public static class Assignment {
+        public Assignment(String name, boolean locked) {
+            this.name = name;
+            this.locked = locked;
+        }
+        String name;
+        boolean locked;
+    }
     
     public void resetAssignment() {
-        assignments.clear();
+        List<Integer> toRemove = assignments.entrySet().stream().filter(e->!e.getValue().locked).map(e->e.getKey()).collect(toList());
+        toRemove.forEach(assignments::remove);
+        nextChoice = 0;
+    }
+    
+    public void removeChoicesThatAreAlreadyAssigned() {
+        Set<String> newChoices = new LinkedHashSet<>(choices);
+        assignments.values().stream().map(a->a.name).forEach(newChoices::remove);
+        this.choices = new ArrayList<>(newChoices);
         nextChoice = 0;
     }
     
@@ -95,7 +115,7 @@ public class Student implements Comparable<Student> {
     public String toCsv(int numPeriods, int maxScore, int firstGradeMaxScore, Map<String, Class> classes) {
         StringBuilder buf = new StringBuilder(getLastName()+","+getFirstName()+","+getGrade()+","+getTeacher()+","+getHappinessScore(grade!=1?maxScore:firstGradeMaxScore)+","+assignments.size()+",");
         buf.append(IntStream.range(0, numPeriods)
-                .mapToObj(i->assignments.getOrDefault(i, ""))
+                .mapToObj(i->assignments.getOrDefault(i, new Assignment("", false)).name)
                 .flatMap(c->Stream.of(c, Optional.ofNullable(classes.get(c)).map(Class::getLocation).orElse("")))
                 .collect(joining("\",\"","\"","\"")));
         return buf.toString();
@@ -114,11 +134,11 @@ public class Student implements Comparable<Student> {
     }
 
     public int getHappinessScore(int maxScore) {
-        Set<String> classes = new HashSet<>(assignments.values());
+        Set<String> classes = assignments.values().stream().map(a->a.name).collect(toSet());
         int score = 0;
-        for (int i = 0; i < choices.size(); i++) {
-            if (classes.contains(choices.get(i))) {
-                score += choices.size() - i;
+        for (int i = 0; i < originalChoices.size(); i++) {
+            if (classes.contains(originalChoices.get(i))) {
+                score += originalChoices.size() - i;
             }
         }
         

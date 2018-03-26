@@ -9,7 +9,7 @@ import org.apache.commons.lang3.StringUtils;
 
 
 public class CSVParser {
-    private static final Pattern NEXT_CELL = Pattern.compile("(\"([^\"]*)\"|([^\",])*),");
+    private static final Pattern NEXT_CELL = Pattern.compile("(\"([^\"]*)\"|([^\",])*),?");
     public static List<String> parseLine(String line) {
         List<String> values = new ArrayList<>();
         Matcher m = NEXT_CELL.matcher(line);

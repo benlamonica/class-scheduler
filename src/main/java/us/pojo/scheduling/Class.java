@@ -13,9 +13,17 @@ import java.util.stream.IntStream;
 import org.apache.commons.validator.routines.IntegerValidator;
 
 public class Class {
-    private static class Period {
+    public static class Period {
+        public static class PeriodAssignment {
+            public PeriodAssignment(Student s, boolean locked) {
+                this.s = s;
+                this.locked = locked;
+            }
+            Student s;
+            boolean locked = false;
+        }
         public int maxStudents;
-        public List<Student> students = new ArrayList<>();
+        public List<PeriodAssignment> students = new ArrayList<>();
         public Period(Period copy) {
             this(copy.maxStudents);
             students = new ArrayList<>(copy.students);
@@ -25,10 +33,20 @@ public class Class {
         }
         public boolean addStudent(Student s) {
             if (students.size() < maxStudents) {
-                students.add(s);
+                students.add(new PeriodAssignment(s, false));
                 return true;
             }
             return false;
+        }
+        public boolean forceAddStudent(Student s) {
+            if (students.size() < maxStudents) {
+                students.add(new PeriodAssignment(s, true));
+                return true;
+            }
+            return false;
+        }
+        public void clear() {
+            students = students.stream().filter(a->a.locked).collect(toList());
         }
     }
 
@@ -53,14 +71,14 @@ public class Class {
     }
     
     public void resetAssignment() {
-        periods.stream().forEach(p->p.students.clear());
+        periods.stream().forEach(p->p.clear());
     }
     
     public Class(String line) {
         List<String> fields = parseLine(line);
         IntegerValidator intValidator = IntegerValidator.getInstance();
         name = fields.get(1);
-        periods = fields.subList(5, fields.size()).stream().map(intValidator::validate).map(Period::new).collect(toList());
+        periods = fields.subList(5, 11).stream().map(intValidator::validate).map(Period::new).collect(toList());
         minGrade = Optional.ofNullable(fields.get(2)).map(intValidator::validate).orElse(1);
         location = fields.get(3);
     }
@@ -72,6 +90,10 @@ public class Class {
             }
         }
         return -1;
+    }
+    
+    public Period getPeriod(int i) {
+        return periods.get(i);
     }
     
     public String getCsvHeader() {

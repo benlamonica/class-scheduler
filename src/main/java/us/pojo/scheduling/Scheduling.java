@@ -6,6 +6,7 @@ import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -15,9 +16,11 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -25,26 +28,73 @@ import java.util.stream.Stream;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 
+import us.pojo.scheduling.Class.Period;
+import us.pojo.scheduling.Student.Assignment;
+
 public class Scheduling {
-    
     private Map<String, Class> classes;
     private List<Student> students;
 
     private BufferedReader getReader(String file) throws IOException {
-        return new BufferedReader(new InputStreamReader(new FileInputStream(file), Charset.forName("utf8")));
+        if (file == null) {
+            return new BufferedReader(new InputStreamReader(new ByteArrayInputStream(new byte[0])));
+        } else {
+            return new BufferedReader(new InputStreamReader(new FileInputStream(file), Charset.forName("utf8")));
+        }
     }
     
-    public Scheduling(String classFilename, String studentFilename) throws IOException {
+    public Scheduling(String classFilename, String studentFilename, String existingSchedule) throws IOException {
         try(BufferedReader classFile = getReader(classFilename);
-            BufferedReader studentFile = getReader(studentFilename)) {
+            BufferedReader studentFile = getReader(studentFilename);
+            BufferedReader existingFile = getReader(existingSchedule)) {
 
             List<String> header = Arrays.asList(studentFile.readLine().split(","));
-            List<Student> students = studentFile.lines().map(l->new Student(header, l)).filter(s->s.choices.size() > 0).collect(toList());
+            Map<String, Student> students = studentFile.lines().map(l->new Student(header, l)).filter(s->s.choices.size() > 0).collect(toMap(s->s.getName(), s->s));
+
             classFile.readLine(); // strip off header
             List<Class> classes = classFile.lines().map(Class::new).collect(toList());
             
-            this.classes = classes.stream().collect(toMap(c->c.name, c->c));
-            this.students = students;
+            this.classes = classes.stream().filter(c->StringUtils.isNotBlank(c.name)).collect(toMap(c->c.name, c->c));
+            
+            List<String> existingHeader = CSVParser.parseLine(existingFile.readLine());
+            existingFile.lines().forEach(line->{
+                List<String> fields = CSVParser.parseLine(line);
+                Map<String, String> mapping = new HashMap<>();
+                for (int i = 0; i < existingHeader.size() && i < fields.size(); i++) {
+                    mapping.put(existingHeader.get(i), fields.get(i));
+                }
+                Student s = students.get(mapping.get("Name"));
+                if (s == null) {
+                    System.err.println("Unable to find student " + mapping.get("Name"));
+                    s = new Student(existingHeader, line);
+                    students.put(s.getName(), s);
+                }
+                if (s != null) {
+                    for (int i = 1; i <= 6; i++) {
+                        String c = mapping.get("Session "+i);
+                        
+                        // some first graders were accidentally assigned classes after 3rd period, clean these out.
+                        if (s.isInFirstGrade() && i > 3) {
+                            continue;
+                        }
+                        
+                        if (StringUtils.isNotBlank(c)) {
+                            Class clazz = this.classes.get(c);
+                            if (clazz == null) {
+                                System.err.println("Could not find class: " + c + " for " + mapping.get("Name"));
+                            } else {
+                                Period p = clazz.getPeriod(i-1);
+                                if (p != null && p.forceAddStudent(s)) {
+                                    s.assignments.put(i-1, new Assignment(c, true));
+                                }
+                            }
+                        }
+                    }
+                    s.removeChoicesThatAreAlreadyAssigned();
+                } 
+            });
+
+            this.students = new ArrayList<>(students.values());
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -68,7 +118,7 @@ public class Scheduling {
                     } else {
                         period = c.addStudent(s, available);
                         if (period != -1) {
-                            s.assignments.put(period, className);
+                            s.assignments.put(period, new Assignment(className, false));
                         }
                     }
                 }
@@ -103,7 +153,7 @@ public class Scheduling {
         }
         
         
-        try (PrintWriter classSizes = new PrintWriter(new FileWriter("/Users/blamoni/Desktop/"+prefix+"class_sizes.csv"))) {
+        try (PrintWriter classSizes = new PrintWriter(new FileWriter("/Users/blamoni/Desktop/"+prefix+"class-sizes.csv"))) {
             classSizes.println(classes.values().iterator().next().getCsvHeader());
             for(Class c: classes.values()) {
                 classSizes.println(c.toCsv());
@@ -124,6 +174,7 @@ public class Scheduling {
         return classes.values().stream()
             .filter(c->c.isAvailableForPeriod(i))
             .map(c->c.getName())
+            .filter(StringUtils::isNotBlank)
             .collect(toSet());
     }
     
@@ -135,7 +186,7 @@ public class Scheduling {
                     Set<String> choices = new LinkedHashSet<>(student.choices);
                     Set<String> classes = getClassesForPeriod(i);
                     choices.retainAll(classes);
-                    choices.removeAll(student.assignments.values());
+                    choices.removeAll(student.assignments.values().stream().map(a->a.name).collect(toList()));
                     if (!choices.isEmpty()) {
                         student.choices.add(0, choices.iterator().next());
                         student.choices = new ArrayList<>(new LinkedHashSet<>(student.choices));
@@ -147,15 +198,14 @@ public class Scheduling {
         });
     }
     
+    private Stream<Student> streamStudentsWithoutAllClasses(List<Student> s, Map<String, Class> classes) {
+        return s.stream()
+                .filter(student->(student.isInFirstGrade() && student.assignments.size() < 3) || (!student.isInFirstGrade() && student.assignments.size() < getNumPeriods(classes)));
+    }
+    
     public void run(String prefix) throws IOException {
         List<Student> s = copyStudents(this.students);
         Map<String, Class> c = copyClasses(this.classes);
-        int numPeriods = getNumPeriods(classes);
-        
-//        s.stream()
-//            .filter(student->student.choices.size() < 10)
-//            .forEach(student->System.out.println(student.getName() + " only has " + student.choices.size() + " unique choices."));
-        
 
         Pair<List<Student>, Map<String,Class>> bestRun = Pair.of(null, null);
         int bestMissing = Integer.MAX_VALUE;
@@ -166,9 +216,7 @@ public class Scheduling {
         while (tries-- > 0) {
             everyoneGetsFirstChoice(s, c);
             
-            List<Student> studentsWithoutAllClasses = s.stream()
-                    .filter(student->(student.isInFirstGrade() && student.assignments.size() < 3) || (!student.isInFirstGrade() && student.assignments.size() < numPeriods))
-                    .collect(toList());
+            List<Student> studentsWithoutAllClasses = streamStudentsWithoutAllClasses(s, c).collect(toList());
 
             numStudentsMissingClasses = studentsWithoutAllClasses.size();
             
@@ -185,17 +233,32 @@ public class Scheduling {
             s.stream().forEach(Student::resetAssignment);
         }
         
-        System.out.println(bestMissing + " students don't have full schedules.");
+        fillInHolesInClassAssignments(bestRun.getLeft(), bestRun.getRight());
+        System.out.println(streamStudentsWithoutAllClasses(bestRun.getLeft(), bestRun.getRight()).count() + " students don't have full schedules.");
         outputResults(prefix, bestRun.getLeft(), bestRun.getRight());
     }
     
+    private void fillInHolesInClassAssignments(List<Student> students, Map<String, Class> classes) {
+        Random r = new Random();
+        streamStudentsWithoutAllClasses(students, classes).forEach(student->{
+            for (int i = 0; i < 6; i++) {
+                if (!student.assignments.containsKey(i)) {
+                    List<String> potentialClasses = new ArrayList<>(getClassesForPeriod(i));
+                    Class randomClass = classes.get(potentialClasses.get(r.nextInt(potentialClasses.size())));
+                    randomClass.getPeriod(i).addStudent(student);
+                    student.assignments.put(i, new Assignment(randomClass.name, false));
+                }
+            }
+        });
+    }
+
     public static void main(String[] args) throws Exception {
         
         long start = System.currentTimeMillis();
-        Scheduling scheduling = new Scheduling("/Users/blamoni/Desktop/EMD 2018 - Class Counts &  Grades.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL Entry for  Submission.csv");
-        scheduling.run("normal-");
-        Scheduling rainScheduling = new Scheduling("/Users/blamoni/Desktop/EMD 2018 - Class Counts & Grades -  Rain Plan.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL Entry for  Submission.csv");
-        rainScheduling.run("rain-");
+        Scheduling scheduling = new Scheduling("/Users/blamoni/Desktop/EMD 2018 - Class Counts & Grades -  Rain Plan.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL Entry for  Submission.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL DOWNLOAD BEN -  modified.csv");
+        scheduling.run("rain-");
+//        Scheduling rainScheduling = new Scheduling("/Users/blamoni/Desktop/EMD 2018 - Class Counts & Grades -  Rain Plan.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL Entry for  Submission.csv");
+//        rainScheduling.run("rain-");
         System.out.println("Took " + (System.currentTimeMillis() - start) + " ms.");
         
     }
