@@ -170,7 +170,7 @@ public class Scheduling {
             .collect(toMap(k->k.getLeft(), v->v.getRight()));
     }
     
-    private Set<String> getClassesForPeriod(int i) {
+    private Set<String> getClassesForPeriod(Map<String, Class> classes, int i) {
         return classes.values().stream()
             .filter(c->c.isAvailableForPeriod(i))
             .map(c->c.getName())
@@ -184,7 +184,7 @@ public class Scheduling {
             for (int i = 0; i < numPeriods; i++) {
                 if (!student.assignments.containsKey(i)) {
                     Set<String> choices = new LinkedHashSet<>(student.choices);
-                    Set<String> classes = getClassesForPeriod(i);
+                    Set<String> classes = getClassesForPeriod(this.classes, i);
                     choices.retainAll(classes);
                     choices.removeAll(student.assignments.values().stream().map(a->a.name).collect(toList()));
                     if (!choices.isEmpty()) {
@@ -243,10 +243,13 @@ public class Scheduling {
         streamStudentsWithoutAllClasses(students, classes).forEach(student->{
             for (int i = 0; i < 6; i++) {
                 if (!student.assignments.containsKey(i)) {
-                    List<String> potentialClasses = new ArrayList<>(getClassesForPeriod(i));
+                    List<String> potentialClasses = new ArrayList<>(getClassesForPeriod(classes, i));
                     Class randomClass = classes.get(potentialClasses.get(r.nextInt(potentialClasses.size())));
-                    randomClass.getPeriod(i).addStudent(student);
-                    student.assignments.put(i, new Assignment(randomClass.name, false));
+                    if (randomClass.getPeriod(i).addStudent(student)) {
+                        student.assignments.put(i, new Assignment(randomClass.name, false));
+                    } else {
+                        System.err.println("Tried to add " + student.getName() + " to " + randomClass.name + " but it's full?");
+                    }
                 }
             }
         });

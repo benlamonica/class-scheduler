@@ -67,7 +67,7 @@ public class Class {
     }
 
     public boolean isAvailableForPeriod(int i) {
-        return periods.get(i).maxStudents > 0;
+        return periods.get(i).maxStudents > 0 && periods.get(i).students.size() < periods.get(i).maxStudents;
     }
     
     public void resetAssignment() {
