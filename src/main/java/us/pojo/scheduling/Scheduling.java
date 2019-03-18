@@ -7,9 +7,9 @@ import static java.util.stream.Collectors.toSet;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
-import java.io.FileInputStream;
-import java.io.FileWriter;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.nio.charset.Charset;
@@ -35,15 +35,15 @@ public class Scheduling {
     private Map<String, Class> classes;
     private List<Student> students;
 
-    private BufferedReader getReader(String file) throws IOException {
+    private BufferedReader getReader(InputStream file) throws IOException {
         if (file == null) {
             return new BufferedReader(new InputStreamReader(new ByteArrayInputStream(new byte[0])));
         } else {
-            return new BufferedReader(new InputStreamReader(new FileInputStream(file), Charset.forName("utf8")));
+            return new BufferedReader(new InputStreamReader(file, Charset.forName("utf8")));
         }
     }
     
-    public Scheduling(String classFilename, String studentFilename, String existingSchedule) throws IOException {
+    public Scheduling(InputStream classFilename, InputStream studentFilename, InputStream existingSchedule) {
         try(BufferedReader classFile = getReader(classFilename);
             BufferedReader studentFile = getReader(studentFilename);
             BufferedReader existingFile = getReader(existingSchedule)) {
@@ -100,7 +100,7 @@ public class Scheduling {
         }
     }
     
-    public void everyoneGetsFirstChoice(List<Student> students, Map<String,Class> classes) throws IOException {
+    public void everyoneGetsFirstChoice(List<Student> students, Map<String,Class> classes) {
         Collections.sort(students);
         int numChoices = students.get(0).choices.size();
         int numPeriods = getNumPeriods(classes);
@@ -130,7 +130,7 @@ public class Scheduling {
         return classes.values().stream().findFirst().map(c->c.periods.size()).orElse(0);
     }
     
-    private void outputResults(String prefix, List<Student> students, Map<String, Class> classes) throws IOException {
+    private Pair<ByteArrayOutputStream, ByteArrayOutputStream> outputResults(List<Student> students, Map<String, Class> classes) {
         int numPeriods = getNumPeriods(classes);
         int maxScore = 0;
         int firstGradeMaxScore = 0;
@@ -145,7 +145,8 @@ public class Scheduling {
                 .mapToObj(i->"Session "+i)
                 .flatMap(h->Stream.of(h, h+" Location"))
                 .collect(joining(","));
-        try (PrintWriter assignments = new PrintWriter(new FileWriter("/Users/blamoni/Desktop/"+prefix+"assignments.csv"))) {
+        ByteArrayOutputStream assignmentsOut = new ByteArrayOutputStream();
+        try (PrintWriter assignments = new PrintWriter(assignmentsOut)) {
             assignments.println("Last Name,First Name,Grade,Teacher,Happiness,NumClasses,"+classHeader);
             for(Student s: students) {
                 assignments.println(s.toCsv(numPeriods, maxScore, firstGradeMaxScore, classes));
@@ -153,13 +154,17 @@ public class Scheduling {
         }
         
         
-        try (PrintWriter classSizes = new PrintWriter(new FileWriter("/Users/blamoni/Desktop/"+prefix+"class-sizes.csv"))) {
+        ByteArrayOutputStream classSizesOut = new ByteArrayOutputStream();
+        try (PrintWriter classSizes = new PrintWriter(classSizesOut)) {
             classSizes.println(classes.values().iterator().next().getCsvHeader());
             for(Class c: classes.values()) {
                 classSizes.println(c.toCsv());
             }
         }
+        
+        return Pair.of(assignmentsOut, classSizesOut);
     }
+    
     private List<Student> copyStudents(List<Student> s) {
         return s.stream().map(Student::new).collect(toList());
     }
@@ -203,7 +208,7 @@ public class Scheduling {
                 .filter(student->(student.isInFirstGrade() && student.assignments.size() < 3) || (!student.isInFirstGrade() && student.assignments.size() < getNumPeriods(classes)));
     }
     
-    public void run(String prefix) throws IOException {
+    public Schedule run() {
         List<Student> s = copyStudents(this.students);
         Map<String, Class> c = copyClasses(this.classes);
 
@@ -234,8 +239,11 @@ public class Scheduling {
         }
         
         fillInHolesInClassAssignments(bestRun.getLeft(), bestRun.getRight());
-        System.out.println(streamStudentsWithoutAllClasses(bestRun.getLeft(), bestRun.getRight()).count() + " students don't have full schedules.");
-        outputResults(prefix, bestRun.getLeft(), bestRun.getRight());
+        long studentsWithoutFullSchedule = streamStudentsWithoutAllClasses(bestRun.getLeft(), bestRun.getRight()).count();
+        System.out.println(studentsWithoutFullSchedule + " students don't have full schedules.");
+        Pair<ByteArrayOutputStream, ByteArrayOutputStream> output = outputResults(bestRun.getLeft(), bestRun.getRight());
+        
+        return new Schedule(output.getLeft(), output.getRight(), studentsWithoutFullSchedule);
     }
     
     private void fillInHolesInClassAssignments(List<Student> students, Map<String, Class> classes) {
@@ -253,16 +261,5 @@ public class Scheduling {
                 }
             }
         });
-    }
-
-    public static void main(String[] args) throws Exception {
-        
-        long start = System.currentTimeMillis();
-        Scheduling scheduling = new Scheduling("/Users/blamoni/Desktop/EMD 2018 - Class Counts & Grades -  Rain Plan.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL Entry for  Submission.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL DOWNLOAD BEN -  modified.csv");
-        scheduling.run("rain-");
-//        Scheduling rainScheduling = new Scheduling("/Users/blamoni/Desktop/EMD 2018 - Class Counts & Grades -  Rain Plan.csv", "/Users/blamoni/Desktop/EMD 2018 - FINAL Entry for  Submission.csv");
-//        rainScheduling.run("rain-");
-        System.out.println("Took " + (System.currentTimeMillis() - start) + " ms.");
-        
     }
 }
