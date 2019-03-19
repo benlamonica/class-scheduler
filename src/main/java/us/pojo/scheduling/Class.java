@@ -6,6 +6,7 @@ import static us.pojo.scheduling.CSVParser.parseLine;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.IntStream;
@@ -54,6 +55,7 @@ public class Class {
     public String name;
     public String location;
     public int minGrade;
+    public boolean isCancelledWhenRaining;
     
     public Class(Class copy) {
         this.name = copy.name;
@@ -74,13 +76,24 @@ public class Class {
         periods.stream().forEach(p->p.clear());
     }
     
-    public Class(String line) {
+    public Class(String line, Map<String, Integer> header) {
         List<String> fields = parseLine(line);
         IntegerValidator intValidator = IntegerValidator.getInstance();
-        name = fields.get(1);
-        periods = fields.subList(5, 11).stream().map(intValidator::validate).map(Period::new).collect(toList());
-        minGrade = Optional.ofNullable(fields.get(2)).map(intValidator::validate).orElse(1);
-        location = fields.get(3);
+        name = fields.get(header.get("class name"));
+
+        periods = IntStream.range(1, 10)
+        	.mapToObj(i->"session " + i)
+        	.filter(header::containsKey)
+        	.map(i->fields.get(header.get(i)))
+        	.map(intValidator::validate)
+        	.map(Period::new)
+        	.collect(toList());
+        
+        minGrade = Optional.ofNullable(fields.get(header.get("mingrade")))
+        		.map(intValidator::validate)
+        		.orElse(1);
+        location = fields.get(header.get("location"));
+        isCancelledWhenRaining = "1".equals(fields.get(header.get("iscancelledwhenraining")));
     }
 
     public int addStudent(Student s, Set<Integer> availablePeriods) {

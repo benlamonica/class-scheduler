@@ -39,8 +39,8 @@ public class SchedulingLambda {
 		ObjectMetadata meta = new ObjectMetadata();
 		meta.setContentType("text/csv");
 		
-		s3.putObject(BUCKET, prefix+"/assignments.csv", new ByteArrayInputStream(s.getAssignments().toByteArray()), meta);
-		s3.putObject(BUCKET, prefix+"/class-sizes.csv", new ByteArrayInputStream(s.getClassSizes().toByteArray()), meta);
+		s3.putObject(BUCKET, prefix+"/assignments.csv", new ByteArrayInputStream(s.getAssignments()), meta);
+		s3.putObject(BUCKET, prefix+"/class-sizes.csv", new ByteArrayInputStream(s.getClassSizes()), meta);
 		URL assignmentsUrl = s3.generatePresignedUrl(BUCKET, prefix+"/assignments.csv", new Date(System.currentTimeMillis() + (24*60*60*1000)));
 		URL classSizesUrl = s3.generatePresignedUrl(BUCKET, prefix+"/class-sizes.csv", new Date(System.currentTimeMillis() + (24*60*60*1000)));
 		

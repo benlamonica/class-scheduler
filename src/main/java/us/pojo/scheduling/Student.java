@@ -38,15 +38,15 @@ public class Student implements Comparable<Student> {
     }
     
     public boolean isInFirstGrade() {
-        return grade == 1 || Optional.ofNullable(fields.get("Teacher")).map(t->t.startsWith("1")).orElse(false);
+        return grade == 1 || Optional.ofNullable(fields.get("teacher")).map(t->t.startsWith("1")).orElse(false);
     }
     
-    public Student(List<String> header, String line) {
+    public Student(List<String> header, String line, int lineNum) {
         List<String> values = parseLine(line);
         Set<String> choices = new LinkedHashSet<>();
         
         for (int i = 0; i < header.size() && i < values.size(); i++) {
-            fields.put(header.get(i), values.get(i));
+            fields.put(header.get(i).toLowerCase(), values.get(i));
             if (header.get(i).endsWith("choice")) {
                 String c = values.get(i);
                 if (c != null) {
@@ -61,13 +61,13 @@ public class Student implements Comparable<Student> {
             }
         }
         try {
-            this.grade = IntegerValidator.getInstance().validate(Optional.ofNullable(fields.get("Grade")).orElse("2"));
+            this.grade = Optional.ofNullable(IntegerValidator.getInstance().validate(fields.get("grade"))).orElse(2);
         } catch (Exception e) {
-            e.printStackTrace();
+        	throw new RuntimeException("Unable to parse grade for student on line " + lineNum);
         }
         
         try {
-            this.time = LocalDateTime.from(TIME_FORMATTER.parse(fields.get("Date Completed")+" "+fields.get("Time Completed"))).toEpochSecond(ZoneOffset.UTC);
+            this.time = LocalDateTime.from(TIME_FORMATTER.parse(fields.get("date completed")+" "+fields.get("time completed"))).toEpochSecond(ZoneOffset.UTC);
         } catch (Exception e) {
             this.time = Long.MAX_VALUE;
         }
@@ -122,15 +122,15 @@ public class Student implements Comparable<Student> {
     }
     
     private String getTeacher() {
-        return fields.get("Teacher");
+        return fields.get("teacher");
     }
 
     private String getFirstName() {
-        return fields.get("STUDENT First Name");
+        return fields.get("student first name");
     }
 
     private String getLastName() {
-        return fields.get("STUDENT Last Name");
+        return fields.get("student last name");
     }
 
     public int getHappinessScore(int maxScore) {

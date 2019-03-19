@@ -3,21 +3,21 @@ package us.pojo.scheduling;
 import java.io.ByteArrayOutputStream;
 
 public class Schedule {
-	private ByteArrayOutputStream assignments;
-	private ByteArrayOutputStream classSizes;
+	private byte[] assignments;
+	private byte[] classSizes;
 	private long studentsMissingAssignments;
 	
 	public Schedule(ByteArrayOutputStream assignments, ByteArrayOutputStream classSizes, long studentsMissingAssignments) {
-		this.assignments = assignments;
-		this.classSizes = classSizes;
+		this.assignments = assignments.toByteArray();
+		this.classSizes = classSizes.toByteArray();
 		this.studentsMissingAssignments = studentsMissingAssignments;
 	}
 
-	public ByteArrayOutputStream getAssignments() {
+	public byte[] getAssignments() {
 		return assignments;
 	}
 
-	public ByteArrayOutputStream getClassSizes() {
+	public byte[] getClassSizes() {
 		return classSizes;
 	}
 
