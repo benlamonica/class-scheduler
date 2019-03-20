@@ -13,6 +13,9 @@ import java.util.stream.IntStream;
 
 import org.apache.commons.validator.routines.IntegerValidator;
 
+import us.pojo.scheduling.Class.Period.PeriodAssignment;
+import us.pojo.scheduling.Student.Assignment;
+
 public class Class {
     public static class Period {
         public static class PeriodAssignment {
@@ -62,6 +65,7 @@ public class Class {
         this.periods = copy.periods.stream().map(Period::new).collect(toList());
         this.minGrade = copy.minGrade;
         this.location = copy.location;
+        this.isCancelledWhenRaining = copy.isCancelledWhenRaining;
     }
     
     public String getName() {
@@ -99,6 +103,7 @@ public class Class {
     public int addStudent(Student s, Set<Integer> availablePeriods) {
         for (int period : availablePeriods) {
             if (periods.get(period).addStudent(s)) {
+            	s.assignToClass(period, name, false);
                 return period;
             }
         }
@@ -120,4 +125,18 @@ public class Class {
     public String getLocation() {
         return location;
     }
+
+	public void clearForRainSchedule() {
+		if (isCancelledWhenRaining) {
+			for (int periodId = 0; periodId < periods.size(); periodId++) {
+				Period p = periods.get(periodId);
+				p.maxStudents = 0;
+				for (PeriodAssignment assignment : p.students) {
+					assignment.s.assignments.remove(periodId);
+				}
+				p.students.clear();
+			}
+		}
+		resetAssignment();
+	}
 }

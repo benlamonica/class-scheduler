@@ -83,12 +83,17 @@ public class Student implements Comparable<Student> {
     public TreeMap<Integer, Assignment> assignments = new TreeMap<>();
 
     public static class Assignment {
+    	
         public Assignment(String name, boolean locked) {
             this.name = name;
             this.locked = locked;
         }
         String name;
         boolean locked;
+        
+        public String toString() {
+        	return name;
+        }
     }
     
     public void resetAssignment() {
@@ -133,6 +138,14 @@ public class Student implements Comparable<Student> {
         return fields.get("student last name");
     }
 
+    public void lockNonRainAssignments(Set<String> nonRainClasses) {
+    	for (Assignment a : assignments.values()) {
+    		if (nonRainClasses.contains(a.name)) {
+    			a.locked = true;
+    		}
+    	}
+    }
+    
     public int getHappinessScore(int maxScore) {
         Set<String> classes = assignments.values().stream().map(a->a.name).collect(toSet());
         int score = 0;
@@ -152,4 +165,32 @@ public class Student implements Comparable<Student> {
         }
         return compare;
     }
+
+	public boolean hasMoreChoices(int startingPeriod, int availablePeriods) {
+		// first check to see if this student needs to be placed in any more classes
+		boolean hasAllAssignments = IntStream.range(startingPeriod, availablePeriods + startingPeriod).allMatch(assignments::containsKey);
+		while (!hasAllAssignments && nextChoice < choices.size()) {
+			String choice = choices.get(nextChoice);
+
+			// check to see if the student is already in this class, so that we don't add them multiple times
+			if (assignments.values().stream().noneMatch(a->a.name.equals(choice))) {
+				return true;
+			} else {
+				nextChoice++;
+			}
+		}
+		return false;
+	}
+
+	public String getNextChoice() {
+		return choices.get(nextChoice++);
+	}
+
+	public void assignToClass(int period, String className, boolean locked) {
+		assignments.put(period, new Assignment(className, locked));
+	}
+	
+	public String toString() {
+		return getName();
+	}
 }

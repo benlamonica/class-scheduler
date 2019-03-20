@@ -23,8 +23,10 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -40,6 +42,9 @@ import us.pojo.scheduling.Student.Assignment;
 public class Scheduling {
     private Map<String, Class> classes;
     private List<Student> students;
+    private int numChoices = 10;
+    private ByteArrayOutputStream errStream = new ByteArrayOutputStream();
+    private PrintWriter err = new PrintWriter(errStream);
 
     private BufferedReader getReader(InputStream file) throws IOException {
         if (file == null) {
@@ -50,9 +55,14 @@ public class Scheduling {
     }
     
     public Scheduling(InputStream classFilename, InputStream studentFilename, InputStream existingSchedule) {
-        try(BufferedReader classFile = getReader(classFilename);
-            BufferedReader studentFile = getReader(studentFilename);
-            BufferedReader existingFile = getReader(existingSchedule)) {
+    	parse(classFilename, studentFilename, existingSchedule);
+    	numChoices = getMaxChoices(students);
+    }
+
+    private void parse(InputStream classStream, InputStream studentStream, InputStream existingScheduleStream) {
+        try(BufferedReader classFile = getReader(classStream);
+            BufferedReader studentFile = getReader(studentStream);
+            BufferedReader existingFile = getReader(existingScheduleStream)) {
 
             List<String> header = Arrays.asList(studentFile.readLine().split(","));
             AtomicInteger studentLine = new AtomicInteger(1);
@@ -88,33 +98,10 @@ public class Scheduling {
                 }
                 Student s = students.get(mapping.get("name"));
                 if (s == null) {
-                    System.err.println("Unable to find student " + mapping.get("name"));
+                    err.println("Unable to find student " + mapping.get("name"));
                     s = new Student(existingHeader, line, existingStudentLine.getAndIncrement());
                     students.put(s.getName(), s);
                 }
-                if (s != null) {
-                    for (int i = 1; i <= 6; i++) {
-                        String c = mapping.get("session "+i);
-                        
-                        // some first graders were accidentally assigned classes after before 4th period, clean these out.
-                        if (s.isInFirstGrade() && i < 4) {
-                            continue;
-                        }
-                        
-                        if (StringUtils.isNotBlank(c)) {
-                            Class clazz = this.classes.get(c);
-                            if (clazz == null) {
-                                System.err.println("Could not find class: " + c + " for " + mapping.get("name"));
-                            } else {
-                                Period p = clazz.getPeriod(i-1);
-                                if (p != null && p.forceAddStudent(s)) {
-                                    s.assignments.put(i-1, new Assignment(c, true));
-                                }
-                            }
-                        }
-                    }
-                    s.removeChoicesThatAreAlreadyAssigned();
-                } 
             });
 
             this.students = new ArrayList<>(students.values());
@@ -123,31 +110,67 @@ public class Scheduling {
         }
     }
     
+    private void forceAddStudentsToClasses(Student s, Map<String, Class> classes) {
+        if (s != null) {
+            for (int i = 0; i < 6; i++) {
+                String c = Optional.ofNullable(s.assignments.get(i)).map(a->a.name).orElse(null);
+                
+                // some first graders were accidentally assigned classes after before 4th period, clean these out.
+                if (s.isInFirstGrade() && i < 3) {
+                    continue;
+                }
+                
+                if (StringUtils.isNotBlank(c)) {
+                    Class clazz = classes.get(c);
+                    if (clazz == null) {
+                        err.println("Could not find class: " + c + " for " + s.getName());
+                    } else {
+                        Period p = clazz.getPeriod(i);
+                        if (p != null && p.forceAddStudent(s)) {
+                            s.assignments.put(i, new Assignment(c, true));
+                        }
+                    }
+                }
+            }
+            s.removeChoicesThatAreAlreadyAssigned();
+        } 
+    	
+    }
+    
     public void everyoneGetsFirstChoice(List<Student> students, Map<String,Class> classes) {
         Collections.sort(students);
-        int numChoices = students.get(0).choices.size();
         int numPeriods = getNumPeriods(classes);
         
         for (int i = 0; i < numChoices; i++) {
             for(Student s: students) {
                 int period = -1;
-                while (period == -1 && s.nextChoice < s.choices.size()) {
-                    String className = s.choices.get(s.nextChoice++);
-                    int availablePeriods = s.isInFirstGrade() ? 3 : numPeriods;
-                    int startingPeriod = s.isInFirstGrade() ? 3 : 0;
+                int availablePeriods = s.isInFirstGrade() ? 3 : numPeriods;
+                int startingPeriod = s.isInFirstGrade() ? 3 : 0;
+                while (period == -1 && s.hasMoreChoices(startingPeriod, availablePeriods)) {
+                    String className = s.getNextChoice();
                     Set<Integer> available = IntStream.range(startingPeriod, startingPeriod + availablePeriods).filter(p->!s.assignments.containsKey(p)).mapToObj(p->p).collect(toSet());
-                    Class c = classes.get(className);
-                    if (c == null || StringUtils.isBlank(className)) {
-                        System.err.println("Unknown Class: " + className);
-                    } else {
-                        period = c.addStudent(s, available);
-                        if (period != -1) {
-                            s.assignments.put(period, new Assignment(className, false));
-                        }
+                    if (!available.isEmpty()) {
+	                    Class c = classes.get(className);
+	                    if (c == null || StringUtils.isBlank(className)) {
+	                        err.println("Unknown Class: " + className);
+	                    } else {
+	                        period = c.addStudent(s, available);
+	                    }
                     }
                 }
+                
+//                if (period == -1) {
+//                	System.out.println(s.getName() + " does not have all their classes.");
+//                }
             }
         }
+    }
+    
+    private int getMaxChoices(List<Student> students) {
+    	return students.stream()
+    			.mapToInt(s->s.choices.size())
+    			.max()
+    			.orElse(10);
     }
     
     private int getNumPeriods(Map<String, Class> classes) {
@@ -196,7 +219,7 @@ public class Scheduling {
     private Map<String, Class> copyClasses(Map<String, Class> c) {
         return c.entrySet().stream()
             .map(e->Pair.of(e.getKey(), new Class(e.getValue())))
-            .collect(toMap(k->k.getLeft(), v->v.getRight()));
+            .collect(toMap(k->k.getLeft(), v->v.getRight(), (a,b)->a, TreeMap::new));
     }
     
     private Set<String> getClassesForPeriod(Map<String, Class> classes, int i) {
@@ -220,22 +243,57 @@ public class Scheduling {
                         student.choices.add(0, choices.iterator().next());
                         student.choices = new ArrayList<>(new LinkedHashSet<>(student.choices));
                     } else {
-                        //System.out.println(student.getName() + " doesn't have any choices for session " + (i+1));
+//                        System.out.println(student.getName() + " doesn't have any choices for session " + (i+1));
                     }
                 }
             }
         });
     }
     
+    private boolean firstGraderMissingClasses(Student s) {
+    	return (s.isInFirstGrade() && s.assignments.size() < 3);
+    }
+    
+    private boolean studentMissingClasses(Student s, int numPeriods) {
+    	return firstGraderMissingClasses(s) || (!s.isInFirstGrade() && s.assignments.size() < numPeriods);
+    }
+    
     private Stream<Student> streamStudentsWithoutAllClasses(List<Student> s, Map<String, Class> classes) {
-        return s.stream()
-                .filter(student->(student.isInFirstGrade() && student.assignments.size() < 3) || (!student.isInFirstGrade() && student.assignments.size() < getNumPeriods(classes)));
+    	int numPeriods = getNumPeriods(classes);
+        return s.stream().filter(student->studentMissingClasses(student, numPeriods));
     }
     
     public Schedule run() {
-        List<Student> s = copyStudents(this.students);
-        Map<String, Class> c = copyClasses(this.classes);
+    	err.println("Running Normal Schedule");
+    	err.println("-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-");
+    	return run(classes, students, false);
+    }
+    
+    public Schedule run(Map<String, Class> classes, List<Student> students, boolean isRaining) {
+        students = copyStudents(students);
+        classes = copyClasses(classes);
+        
+        if (isRaining) {
+        	err.println("\nRunning Rain Schedule");
+        	err.println("-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-");
+        	classes.values().forEach(Class::clearForRainSchedule);
+            classes.values().stream().forEach(Class::resetAssignment);
+        	Set<String> nonRainClasses = classes.entrySet().stream()
+        			.filter(e->!e.getValue().isCancelledWhenRaining)
+        			.map(e->e.getKey())
+        			.collect(toSet());
+        	
+        	
+        	for (Student student : students) {
+        		student.lockNonRainAssignments(nonRainClasses);
+        		student.resetAssignment();
+        		forceAddStudentsToClasses(student, classes);
+        	}
+        }
 
+        Map<String, Class> c = copyClasses(classes);
+        List<Student> s = copyStudents(students);
+        
         Pair<List<Student>, Map<String,Class>> bestRun = Pair.of(null, null);
         int bestMissing = Integer.MAX_VALUE;
         int numStudentsMissingClasses = -1;
@@ -257,30 +315,51 @@ public class Scheduling {
             // do something to make it so that more students get their classes filled.
             rearrangeChoicesForMissingPeriods(studentsWithoutAllClasses);
             
-            c = copyClasses(this.classes);
+            c = copyClasses(classes);
             c.values().stream().forEach(Class::resetAssignment);
             s.stream().forEach(Student::resetAssignment);
         }
         
+
+        
+        long studentsWithoutFullSchedule = streamStudentsWithoutAllClasses(bestRun.getLeft(), bestRun.getRight())
+        		//.peek(student->System.err.println(student.getName() + " doesn't have a full schedule."))
+        		.count();
+        
         fillInHolesInClassAssignments(bestRun.getLeft(), bestRun.getRight());
-        long studentsWithoutFullSchedule = streamStudentsWithoutAllClasses(bestRun.getLeft(), bestRun.getRight()).count();
-        System.out.println(studentsWithoutFullSchedule + " students don't have full schedules.");
+        err.println(studentsWithoutFullSchedule + " students don't have full schedules, have assigned random classes.");
         Pair<ByteArrayOutputStream, ByteArrayOutputStream> output = outputResults(bestRun.getLeft(), bestRun.getRight());
         
-        return new Schedule(output.getLeft(), output.getRight(), studentsWithoutFullSchedule);
+        byte[] rainAssignments = null;
+        byte[] rainClassSizes = null;
+        if (!isRaining) {
+        	Schedule rainSchedule = run(bestRun.getRight(), bestRun.getLeft(), true);
+        	rainAssignments = rainSchedule.getAssignments();
+        	rainClassSizes = rainSchedule.getClassSizes();
+        }
+        
+        err.close();
+        return new Schedule(output.getLeft().toByteArray(), output.getRight().toByteArray() ,rainAssignments, rainClassSizes, studentsWithoutFullSchedule, new String(errStream.toByteArray(), Charset.forName("utf8")));
     }
     
     private void fillInHolesInClassAssignments(List<Student> students, Map<String, Class> classes) {
         Random r = new Random();
         streamStudentsWithoutAllClasses(students, classes).forEach(student->{
-            for (int i = 0; i < 6; i++) {
+        	int start = student.isInFirstGrade() ? 3 : 0;
+            for (int i = start; i < 6; i++) {
                 if (!student.assignments.containsKey(i)) {
                     List<String> potentialClasses = new ArrayList<>(getClassesForPeriod(classes, i));
-                    Class randomClass = classes.get(potentialClasses.get(r.nextInt(potentialClasses.size())));
-                    if (randomClass.getPeriod(i).addStudent(student)) {
-                        student.assignments.put(i, new Assignment(randomClass.name, false));
+                    student.assignments.values().stream().map(a->a.name).forEach(potentialClasses::remove);
+                    if (!potentialClasses.isEmpty()) {
+	                    Class randomClass = classes.get(potentialClasses.get(r.nextInt(potentialClasses.size())));
+	                    if (randomClass.getPeriod(i).addStudent(student)) {
+	                    	err.println("Randomly adding " + student.getName() + " to class " + randomClass.name);
+	                        student.assignments.put(i, new Assignment(randomClass.name, false));
+	                    } else {
+	                        err.println("Tried to add " + student.getName() + " to " + randomClass.name + " but it's full?");
+	                    }
                     } else {
-                        System.err.println("Tried to add " + student.getName() + " to " + randomClass.name + " but it's full?");
+                    	err.println("Out of classes for period " + (i+1) + " for " + student.getName());
                     }
                 }
             }
@@ -294,14 +373,18 @@ public class Scheduling {
     	) {
 			Scheduling scheduler = new Scheduling(classFile, studentsFile, null);
 			Schedule s = scheduler.run();
+			System.err.println(s.getMsg());
 			
-			Scheduling rainScheduler = new Scheduling
 			try (
 				OutputStream assignmentsFile = new FileOutputStream("/Users/ben/Documents/Explore More Day 2019/assignments.csv");
+				OutputStream rainAssignmentsFile = new FileOutputStream("/Users/ben/Documents/Explore More Day 2019/rain-assignments.csv");
 				OutputStream classSizes = new FileOutputStream("/Users/ben/Documents/Explore More Day 2019/class-sizes.csv");
+				OutputStream rainClassSizes = new FileOutputStream("/Users/ben/Documents/Explore More Day 2019/rain-class-sizes.csv");
 			) {
 				IOUtils.copy(new ByteArrayInputStream(s.getAssignments()), assignmentsFile);
+				IOUtils.copy(new ByteArrayInputStream(s.getRainAssignments()), rainAssignmentsFile);
 				IOUtils.copy(new ByteArrayInputStream(s.getClassSizes()), classSizes);
+				IOUtils.copy(new ByteArrayInputStream(s.getRainClassSizes()), rainClassSizes);
 			}
     	}
 	}
