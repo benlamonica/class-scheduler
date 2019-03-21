@@ -41,10 +41,13 @@ import us.pojo.scheduling.Student.Assignment;
 
 public class Scheduling {
     private Map<String, Class> classes;
+    private Map<String, Class> rainClasses;
     private List<Student> students;
+    private List<Student> rainStudents;
     private int numChoices = 10;
     private ByteArrayOutputStream errStream = new ByteArrayOutputStream();
     private PrintWriter err = new PrintWriter(errStream);
+    private boolean randomlyFillMissingClasses = false;
 
     private BufferedReader getReader(InputStream file) throws IOException {
         if (file == null) {
@@ -54,59 +57,98 @@ public class Scheduling {
         }
     }
     
-    public Scheduling(InputStream classFilename, InputStream studentFilename, InputStream existingSchedule) {
-    	parse(classFilename, studentFilename, existingSchedule);
+    public Scheduling(InputStream classesStream, InputStream rainClassesStream, InputStream studentStream, InputStream existingScheduleStream, InputStream existingRainScheduleStream, boolean randomlyFillMissingClasses) {
+    	parse(classesStream, rainClassesStream, studentStream, existingScheduleStream, existingRainScheduleStream);
     	numChoices = getMaxChoices(students);
+    	this.randomlyFillMissingClasses = randomlyFillMissingClasses;
     }
 
-    private void parse(InputStream classStream, InputStream studentStream, InputStream existingScheduleStream) {
+    private Map<String, Class> parseClassFile(BufferedReader classFile) throws IOException {
+    	if (!classFile.ready()) {
+    		throw new RuntimeException("Unable to parse classes.csv, file not provided.");
+    	}
+    	
+    	Map<String, Integer> classHeader = new HashMap<>();
+        
+        int classCol = 0;
+        for (String key : classFile.readLine().split(",")) {
+        	classHeader.put(key.toLowerCase(), classCol++);
+        }
+        
+        List<Class> classes = classFile.lines().map(l->new Class(l, classHeader)).collect(toList());
+        return classes.stream().filter(c->StringUtils.isNotBlank(c.name)).collect(toMap(c->c.name, c->c));
+    }
+    
+    private boolean parseExistingStudents(Map<String, Class> classes, Map<String, Student> students, BufferedReader existingFile) throws IOException {
+    	if (existingFile.ready()) {
+	        List<String> existingHeader = CSVParser.parseLine(existingFile.readLine());
+	        AtomicInteger existingStudentLine = new AtomicInteger(1);
+	        existingFile.lines().forEach(line->{
+	            List<String> fields = CSVParser.parseLine(line);
+	            Map<String, String> mapping = new HashMap<>();
+	            for (int i = 0; i < existingHeader.size() && i < fields.size(); i++) {
+	                mapping.put(existingHeader.get(i), fields.get(i));
+	            }
+	            Student s = students.get(mapping.get("name"));
+	            if (s == null) {
+	                err.println("Unable to find student " + mapping.get("name"));
+	                s = new Student(existingHeader, line, existingStudentLine.getAndIncrement());
+	                students.put(s.getName(), s);
+	            }
+	        });
+	        return true;
+    	}
+    	
+    	return false;
+    }
+    
+    private Map<String, Student> parseStudents(BufferedReader studentFile) throws IOException {
+        List<String> header = Arrays.asList(studentFile.readLine().split(","));
+        AtomicInteger studentLine = new AtomicInteger(1);
+        Map<String, Student> students = studentFile.lines()
+        		.map(l->new Student(header, l, studentLine.getAndIncrement())).filter(s->s.choices.size() > 0)
+        		.collect(toMap(s->s.getName(), s->s, (a,b)->{
+        			if (a.choices.size() < b.choices.size()) {
+        				return b;
+        			} else {
+        				return a;
+        			}
+        		}));
+
+        return students;
+    }
+    private void parse(InputStream classStream, InputStream rainClassStream, InputStream studentStream, InputStream existingScheduleStream, InputStream existingRainScheduleStream) {
         try(BufferedReader classFile = getReader(classStream);
+        	BufferedReader rainClassFile = getReader(classStream);
             BufferedReader studentFile = getReader(studentStream);
-            BufferedReader existingFile = getReader(existingScheduleStream)) {
+            BufferedReader existingFile = getReader(existingScheduleStream);
+            BufferedReader existingRainFile = getReader(existingRainScheduleStream)) {
 
-            List<String> header = Arrays.asList(studentFile.readLine().split(","));
-            AtomicInteger studentLine = new AtomicInteger(1);
-            Map<String, Student> students = studentFile.lines()
-            		.map(l->new Student(header, l, studentLine.getAndIncrement())).filter(s->s.choices.size() > 0)
-            		.collect(toMap(s->s.getName(), s->s, (a,b)->{
-            			if (a.choices.size() < b.choices.size()) {
-            				return b;
-            			} else {
-            				return a;
-            			}
-            		}));
-
-            Map<String, Integer> classHeader = new HashMap<>();
+            this.classes = parseClassFile(classFile);
             
-            int classCol = 0;
-            for (String key : classFile.readLine().split(",")) {
-            	classHeader.put(key.toLowerCase(), classCol++);
+            if (!rainClassFile.ready()) {
+            	// if not rain schedule was specified, derive one
+            	this.rainClasses = copyClasses(this.classes);
+            	rainClasses.values().forEach(Class::clearForRainSchedule);
+            } else {
+            	rainClasses = parseClassFile(rainClassFile);
             }
+
+            Map<String, Student> students = parseStudents(studentFile);
+            Map<String, Student> rainStudents = new HashMap<>();
             
-            List<Class> classes = classFile.lines().map(l->new Class(l, classHeader)).collect(toList());
-            
-            this.classes = classes.stream().filter(c->StringUtils.isNotBlank(c.name)).collect(toMap(c->c.name, c->c));
-            
-            List<String> existingHeader = CSVParser.parseLine(existingFile.readLine());
-            
-            AtomicInteger existingStudentLine = new AtomicInteger(1);
-            existingFile.lines().forEach(line->{
-                List<String> fields = CSVParser.parseLine(line);
-                Map<String, String> mapping = new HashMap<>();
-                for (int i = 0; i < existingHeader.size() && i < fields.size(); i++) {
-                    mapping.put(existingHeader.get(i), fields.get(i));
-                }
-                Student s = students.get(mapping.get("name"));
-                if (s == null) {
-                    err.println("Unable to find student " + mapping.get("name"));
-                    s = new Student(existingHeader, line, existingStudentLine.getAndIncrement());
-                    students.put(s.getName(), s);
-                }
+            // deep copy the students over to the rain status
+            students.forEach((name,obj)->{
+            	rainStudents.put(name, new Student(obj));
             });
+            
+            parseExistingStudents(classes, students, existingFile);
+            boolean existingRainStudents = parseExistingStudents(rainClasses, rainStudents, existingRainFile);
 
             this.students = new ArrayList<>(students.values());
+            this.rainStudents = existingRainStudents ? new ArrayList<>(rainStudents.values()) : null;
         } catch (Exception e) {
-            e.printStackTrace();
+            e.printStackTrace(err);
         }
     }
     
@@ -276,13 +318,11 @@ public class Scheduling {
         if (isRaining) {
         	err.println("\nRunning Rain Schedule");
         	err.println("-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-");
-        	classes.values().forEach(Class::clearForRainSchedule);
-            classes.values().stream().forEach(Class::resetAssignment);
+        	
         	Set<String> nonRainClasses = classes.entrySet().stream()
         			.filter(e->!e.getValue().isCancelledWhenRaining)
         			.map(e->e.getKey())
         			.collect(toSet());
-        	
         	
         	for (Student student : students) {
         		student.lockNonRainAssignments(nonRainClasses);
@@ -326,14 +366,16 @@ public class Scheduling {
         		//.peek(student->System.err.println(student.getName() + " doesn't have a full schedule."))
         		.count();
         
-        fillInHolesInClassAssignments(bestRun.getLeft(), bestRun.getRight());
-        err.println(studentsWithoutFullSchedule + " students don't have full schedules, have assigned random classes.");
+        if (randomlyFillMissingClasses) {
+        	fillInHolesInClassAssignments(bestRun.getLeft(), bestRun.getRight());
+        }
+        err.println(studentsWithoutFullSchedule + " students don't have full schedules" + (randomlyFillMissingClasses ? ", have assigned random classes." : "."));
         Pair<ByteArrayOutputStream, ByteArrayOutputStream> output = outputResults(bestRun.getLeft(), bestRun.getRight());
         
         byte[] rainAssignments = null;
         byte[] rainClassSizes = null;
         if (!isRaining) {
-        	Schedule rainSchedule = run(bestRun.getRight(), bestRun.getLeft(), true);
+        	Schedule rainSchedule = run(rainClasses, rainStudents != null ? rainStudents : bestRun.getLeft(), true);
         	rainAssignments = rainSchedule.getAssignments();
         	rainClassSizes = rainSchedule.getClassSizes();
         }
@@ -370,8 +412,9 @@ public class Scheduling {
     	try (
 			InputStream classFile = new FileInputStream("/Users/ben/Documents/Explore More Day 2019/classes.csv");
     		InputStream studentsFile = new FileInputStream("/Users/ben/Documents/Explore More Day 2019/students.csv");
+			InputStream rainClassFile = new FileInputStream("/Users/ben/Documents/Explore More Day 2019/classes-rain.csv");
     	) {
-			Scheduling scheduler = new Scheduling(classFile, studentsFile, null);
+			Scheduling scheduler = new Scheduling(classFile, rainClassFile, studentsFile, null, null, false);
 			Schedule s = scheduler.run();
 			System.err.println(s.getMsg());
 			

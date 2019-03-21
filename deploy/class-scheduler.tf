@@ -121,7 +121,8 @@ resource "aws_lambda_function" "class_scheduler" {
   runtime = "java8"
 
   # creating the aws s3 client causes metaspace to run out of space. Needs at least 256.
-  memory_size = 256
+  memory_size = 1024
+  timeout = 15
 
   role = "${aws_iam_role.lambda_exec.arn}"
 }
@@ -136,7 +137,8 @@ resource "aws_iam_role" "lambda_exec" {
     {
       "Action": "sts:AssumeRole",
       "Principal": {
-        "Service": "lambda.amazonaws.com"
+        "Service": "lambda.amazonaws.com",
+        "AWS": "arn:aws:iam::022291592860:user/admin"
       },
       "Effect": "Allow",
       "Sid": ""
@@ -174,9 +176,51 @@ resource "aws_iam_policy" "lambda_logging" {
 EOF
 }
 
+# See also the following AWS managed policy: AWSLambdaBasicExecutionRole
+resource "aws_iam_policy" "lamba_s3" {
+  name = "lambda_s3"
+  path = "/"
+  description = "IAM policy for writing and reading in s3 bucket"
+
+  policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:GetEncryptionConfiguration"
+      ],
+      "Resource": ["${aws_s3_bucket.class-scheduler.arn}","${aws_s3_bucket.class-scheduler.arn}/results/*"],
+      "Effect": "Allow"
+    },
+    {
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey",
+        "kms:ReEncryptTo",
+        "kms:GenerateDataKeyWithoutPlaintext",
+        "kms:DescribeKey",
+        "kms:ReEncryptFrom"
+      ],
+      "Resource": "${aws_kms_key.s3_kms_key.arn}",
+      "Effect": "Allow"      
+    }
+  ]
+}
+EOF
+}
+
 resource "aws_iam_role_policy_attachment" "lambda_logs" {
   role = "${aws_iam_role.lambda_exec.name}"
   policy_arn = "${aws_iam_policy.lambda_logging.arn}"
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_s3" {
+  role = "${aws_iam_role.lambda_exec.name}"
+  policy_arn = "${aws_iam_policy.lamba_s3.arn}"
 }
 
 resource "aws_api_gateway_rest_api" "class_scheduler" {

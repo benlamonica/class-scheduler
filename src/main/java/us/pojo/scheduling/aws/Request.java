@@ -6,6 +6,7 @@ public class Request {
 	private String rainClassSchedule;
 	private String students;
 	private String existingAssignments;
+	private String existingRainAssignments;
 
 	public String getClassSchedule() {
 		return classSchedule;
@@ -37,5 +38,13 @@ public class Request {
 
 	public void setExistingAssignments(String existingAssignments) {
 		this.existingAssignments = existingAssignments;
+	}
+
+	public String getExistingRainAssignments() {
+		return existingRainAssignments;
+	}
+
+	public void setExistingRainAssignments(String existingRainAssignments) {
+		this.existingRainAssignments = existingRainAssignments;
 	}
 }

@@ -6,10 +6,9 @@ public class Result {
 	private String classSizesUrl;
 	private long studentsMissingAssignments;
 
-	public Result(String message, String assignmentsUrl, String classSizesUrl, long studentsMissingAssignments) {
+	public Result(String message, String assignmentsUrl, long studentsMissingAssignments) {
 		this.message = message;
 		this.assignmentsUrl = assignmentsUrl;
-		this.classSizesUrl = classSizesUrl;
 		this.studentsMissingAssignments = studentsMissingAssignments;
 	}
 
